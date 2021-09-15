@@ -19,32 +19,6 @@ if (NOT WIN32)
   include(GNUInstallDirs)
 endif ()
 
-message(STATUS "${CMAKE_CROSSCOMPILING} ${CMAKE_HOST_SYSTEM_NAME}")
-message(STATUS "${CMAKE_SIZEOF_VOID_P} ${CMAKE_SYSTEM_NAME}")
-if(CMAKE_CROSSCOMPILING)
-  if((${CMAKE_HOST_SYSTEM_NAME} STREQUAL Darwin) OR
-    (${CMAKE_HOST_SYSTEM_NAME} STREQUAL IOS))
-    if (CMAKE_SIZEOF_VOID_P EQUAL 4)
-      if("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
-        set(HOST_WINE wine)
-        set(TOOLCHAIN "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
-        if(TARGET_SYS)
-          set(TARGET_SYS "-DTARGET_SYS=${TARGET_SYS}")
-        endif()
-      else()
-        include(${CMAKE_CURRENT_LIST_DIR}/Utils/Darwin.wine.cmake)
-      endif()
-      message(WARNING "TOOLCHAIN=${TOOLCHAIN}")
-    else()
-      set(HOST_WINE)
-    endif()
-  elseif(${CMAKE_SYSTEM_NAME} STREQUAL Darwin)
-    if (CMAKE_SIZEOF_VOID_P EQUAL 4)
-      include(${CMAKE_CURRENT_LIST_DIR}/Utils/Darwin.wine.cmake)
-    endif()
-  endif()
-endif()
-
 set(LUAJIT_BUILD_ALAMG OFF CACHE BOOL "Enable alamg build mode")
 set(LUAJIT_DISABLE_GC64 OFF CACHE BOOL "Disable GC64 mode for x64")
 set(LUA_MULTILIB "lib" CACHE PATH "The name of lib directory.")
@@ -57,6 +31,46 @@ set(LUAJIT_NUMMODE 0 CACHE STRING
   1 - Single number mode
   2 - Dual number mode
 ")
+
+message(STATUS "${CMAKE_CROSSCOMPILING} ${CMAKE_HOST_SYSTEM_NAME}")
+message(STATUS "${CMAKE_SIZEOF_VOID_P} ${CMAKE_SYSTEM_NAME}")
+if(CMAKE_CROSSCOMPILING)
+  if(${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES 64)
+    set(HOST_64 TRUE)
+  else()
+    set(HOST_64 FALSE)
+  endif()
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(TARGET_64 TRUE)
+  else()
+    set(TARGET_64 FALSE)
+  endif()
+
+  if(HOST_64 AND NOT TARGET_64)
+    if(${CMAKE_HOST_SYSTEM_NAME} STREQUAL Darwin)
+      if(${CMAKE_SYSTEM_NAME} STREQUAL Windows)
+        set(HOST_WINE wine)
+        set(TOOLCHAIN "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+        if(TARGET_SYS)
+          set(TARGET_SYS "-DTARGET_SYS=${TARGET_SYS}")
+        endif()
+        include(${CMAKE_CURRENT_LIST_DIR}/Utils/Darwin.wine.cmake)
+      else()
+        include(${CMAKE_CURRENT_LIST_DIR}/Utils/Darwin.wine.cmake)
+      endif()
+    else()
+      message(FATAL_ERROR
+        "NYI build ${CMAKE_SYSTEM_NAME} for on ${CMAKE_HOST_SYSTEM_NAME}")
+    endif()
+  else()
+    #if(${CMAKE_HOST_SYSTEM_NAME} STREQUAL Darwin)
+    #  include(${CMAKE_CURRENT_LIST_DIR}/Utils/Darwin.wine.cmake)
+    #else()
+    #  message(FATAL_ERROR
+    #    "NYI build ${CMAKE_SYSTEM_NAME} for on ${CMAKE_HOST_SYSTEM_NAME}")
+    #endif()
+  endif()
+endif()
 
 set(MINILUA_EXE minilua)
 if(HOST_WINE)
@@ -83,6 +97,10 @@ find_library(LIBDL_LIBRARIES NAMES dl)
 
 if($ENV{LUA_TARGET_SHARED})
   add_definitions(-fPIC)
+endif()
+
+if(ANDROID)
+  set(LUAJIT_DISABLE_JIT ON)
 endif()
 
 set(TARGET_ARCH "")
@@ -149,13 +167,47 @@ if(WIN32 OR MINGW)
   set(DASM_FLAGS ${DASM_FLAGS} -D WIN)
 endif()
 
-set(LJ_DEFINITIONS "")
-if(NOT LUAJIT_NO_UNWIND AND NOT IOS)
-  set(LJ_DEFINITIONS ${LJ_DEFINITIONS} -DLUAJIT_UNWIND_EXTERNAL)
-  set(TARGET_ARCH ${TARGET_ARCH} -DLUAJIT_UNWIND_EXTERNAL)
+if(IOS)
+  set(LUAJIT_NO_UNWIND ON)
 endif()
 
-if(IOS)
+if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL mips64 OR
+   ${CMAKE_SYSTEM_PROCESSOR} STREQUAL aarch64 OR
+   ${CMAKE_SYSTEM_NAME} STREQUAL Windows)
+  set(LUAJIT_NO_UNWIND IGNORE)
+endif()
+
+if(CMAKE_C_COMPILER_ID STREQUAL zig)
+  message(STATUS "#### CMAKE_SYSTEM_NAME is ${CMAKE_SYSTEM_NAME}")
+  message(STATUS "#### CMAKE_SYSTEM_PROCESSOR is ${CMAKE_SYSTEM_PROCESSOR}")
+  message(STATUS "#### ARCH is ${ARCH}")
+  set(LUAJIT_BUILD_ALAMG ON)
+  if(${CMAKE_SYSTEM_NAME} MATCHES Darwin)
+    set(LUAJIT_NO_UNWIND ON)
+  elseif(${CMAKE_SYSTEM_NAME} STREQUAL Linux)
+    if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL x86_64)
+      set(LUAJIT_NO_UNWIND ON)
+    endif()
+  endif()
+endif()
+
+set(LJ_DEFINITIONS "")
+if(${LUAJIT_NO_UNWIND} STREQUAL ON)
+  message(STATUS "** LUAJIT_NO_UNWIND is ON")
+  # LUAJIT_NO_UNWIND is ON
+  set(DASM_FLAGS ${DASM_FLAGS} -D NO_UNWIND)
+  set(TARGET_ARCH ${TARGET_ARCH} -DLUAJIT_NO_UNWIND)
+  set(LJ_DEFINITIONS ${LJ_DEFINITIONS} -DLUAJIT_NO_UNWIND)
+elseif(${LUAJIT_NO_UNWIND} STREQUAL OFF)
+  message(STATUS "** LUAJIT_NO_UNWIND is OFF")
+  # LUAJIT_NO_UNWIND is OFF
+  set(LJ_DEFINITIONS ${LJ_DEFINITIONS} -DLUAJIT_UNWIND_EXTERNAL)
+  set(TARGET_ARCH ${TARGET_ARCH} -DLUAJIT_UNWIND_EXTERNAL)
+else()
+  message(STATUS "***LUAJIT_NO_UNWIND is ${LUAJIT_NO_UNWIND}")
+endif()
+
+if(IOS OR ANDROID)
   set(LJ_DEFINITIONS ${LJ_DEFINITIONS} -DLJ_NO_SYSTEM=1)
 endif()
 
@@ -327,6 +379,7 @@ else()
 
   add_custom_command(OUTPUT ${MINILUA_PATH}
     COMMAND ${CMAKE_COMMAND} ${TOOLCHAIN} ${TARGET_SYS} -DLUAJIT_DIR=${LUAJIT_DIR}
+            -DCMAKE_SIZEOF_VOID_P=${CMAKE_SIZEOF_VOID_P}
             ${CMAKE_CURRENT_LIST_DIR}/host/minilua
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/minilua
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/minilua)
@@ -369,6 +422,7 @@ else()
   add_custom_command(OUTPUT ${BUILDVM_PATH}
     COMMAND ${CMAKE_COMMAND} ${TOOLCHAIN} ${TARGET_SYS}
             ${CMAKE_CURRENT_LIST_DIR}/host/buildvm
+            -DCMAKE_SIZEOF_VOID_P=${CMAKE_SIZEOF_VOID_P}
             -DLUAJIT_DIR=${LUAJIT_DIR}
             -DEXTRA_COMPILER_FLAGS_FILE=${BUILDVM_COMPILER_FLAGS_PATH}
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/buildvm
@@ -529,6 +583,10 @@ if(APPLE AND ${CMAKE_C_COMPILER_ID} STREQUAL "zig")
   set_target_properties(minilua PROPERTIES
     LINK_FLAGS "-mmacosx-version-min=10.11")
 endif()
+if(NOT WIN32 AND NOT LUAJIT_NO_UNWIND AND ${CMAKE_C_COMPILER_ID} STREQUAL zig)
+  target_link_libraries(luajit unwind)
+endif()
+
 target_compile_definitions(luajit PRIVATE ${LJ_DEFINITIONS})
 file(COPY ${LJ_DIR}/jit DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
