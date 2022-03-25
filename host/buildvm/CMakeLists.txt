@@ -50,3 +50,7 @@ target_include_directories(buildvm PRIVATE
   ${CMAKE_CURRENT_BINARY_DIR}/..
   ${CMAKE_CURRENT_BINARY_DIR}/../../..
   ${CMAKE_CURRENT_BINARY_DIR})
+
+if(APPLE)
+    set_target_properties(buildvm PROPERTIES XCODE_ATTRIBUTE_SDKROOT "macosx")
+endif()

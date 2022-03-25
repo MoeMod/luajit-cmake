@@ -81,7 +81,11 @@ set(MINILUA_EXE minilua)
 if(HOST_WINE)
   set(MINILUA_EXE minilua.exe)
 endif()
-set(MINILUA_PATH ${CMAKE_CURRENT_BINARY_DIR}/minilua/${MINILUA_EXE})
+if(${CMAKE_HOST_SYSTEM_NAME} STREQUAL Windows)
+  set(MINILUA_PATH ${CMAKE_CURRENT_BINARY_DIR}/minilua/Debug/${MINILUA_EXE})
+else()
+  set(MINILUA_PATH ${CMAKE_CURRENT_BINARY_DIR}/minilua/${MINILUA_EXE})
+endif()
 
 include(CheckTypeSize)
 include(TestBigEndian)
@@ -171,11 +175,40 @@ endif()
 include(${CMAKE_CURRENT_LIST_DIR}/Modules/FindUnwind.cmake)
 if (NOT unwind_FOUND)
   set(LUAJIT_NO_UNWIND ON)
-  if(CMAKE_SYSTEM_PROCESSOR STREQUAL mips64 OR
-     CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64 OR
-     CMAKE_SYSTEM_NAME STREQUAL Windows)
-    if(NOT IOS)
-      set(LUAJIT_NO_UNWIND IGNORE)
+endif()
+
+if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL mips64 OR
+  "${CMAKE_SYSTEM_PROCESSOR}" STREQUAL aarch64 OR
+   ${CMAKE_SYSTEM_NAME} STREQUAL Windows)
+  if(NOT IOS)
+    set(LUAJIT_NO_UNWIND IGNORE)
+  endif()
+endif()
+
+if(CMAKE_C_COMPILER_ID STREQUAL zig)
+  message(STATUS "#### CMAKE_SYSTEM_NAME is ${CMAKE_SYSTEM_NAME}")
+  message(STATUS "#### CMAKE_SYSTEM_PROCESSOR is ${CMAKE_SYSTEM_PROCESSOR}")
+  message(STATUS "#### ARCH is ${ARCH}")
+  set(LUAJIT_BUILD_ALAMG ON)
+  if(${CMAKE_SYSTEM_NAME} MATCHES Darwin)
+    set(LUAJIT_NO_UNWIND ON)
+  elseif(${CMAKE_SYSTEM_NAME} STREQUAL Linux)
+    if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL x86_64)
+      set(LUAJIT_NO_UNWIND ON)
+    endif()
+endif()
+
+if(CMAKE_C_COMPILER_ID STREQUAL zig)
+  message(STATUS "#### CMAKE_SYSTEM_NAME is ${CMAKE_SYSTEM_NAME}")
+  message(STATUS "#### CMAKE_SYSTEM_PROCESSOR is ${CMAKE_SYSTEM_PROCESSOR}")
+  message(STATUS "#### ARCH is ${ARCH}")
+  set(LUAJIT_BUILD_ALAMG ON)
+  if(${CMAKE_SYSTEM_NAME} MATCHES Darwin)
+    set(LUAJIT_NO_UNWIND ON)
+  elseif(${CMAKE_SYSTEM_NAME} STREQUAL Linux)
+    if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL x86_64)
+      set(LUAJIT_NO_UNWIND ON)
+>>>>>>> origin/master
     endif()
   endif()
 endif()
@@ -375,26 +408,27 @@ if(NOT CMAKE_CROSSCOMPILING)
 else()
   make_directory(${CMAKE_CURRENT_BINARY_DIR}/minilua)
 
-  add_custom_command(OUTPUT ${MINILUA_PATH}
+  add_custom_target(minilua
     COMMAND ${CMAKE_COMMAND} ${TOOLCHAIN} ${TARGET_SYS} -DLUAJIT_DIR=${LUAJIT_DIR}
             -DCMAKE_SIZEOF_VOID_P=${CMAKE_SIZEOF_VOID_P}
             ${CMAKE_CURRENT_LIST_DIR}/host/minilua
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/minilua
+    BYPRODUCTS ${MINILUA_PATH}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/minilua)
-
-  add_custom_target(minilua ALL
-    DEPENDS ${MINILUA_PATH}
-  )
+  if(IOS)
+    set_target_properties(minilua PROPERTIES XCODE_ATTRIBUTE_SDKROOT "macosx")
+  endif()
 endif()
 
 # Generate buildvm_arch.h
-add_custom_command(OUTPUT ${BUILDVM_ARCH_H}
+add_custom_target(buildvm_arch_h
   COMMAND ${HOST_WINE} ${MINILUA_PATH} ${DASM_PATH} ${DASM_FLAGS}
           -o ${BUILDVM_ARCH_H} ${VM_DASC_PATH}
+  BYPRODUCTS ${BUILDVM_ARCH_H} ${VM_DASC_PATH}
   DEPENDS minilua)
-add_custom_target(buildvm_arch_h ALL
-  DEPENDS ${BUILDVM_ARCH_H}
-)
+if(IOS)
+  set_target_properties(buildvm_arch_h PROPERTIES XCODE_ATTRIBUTE_SDKROOT "macosx")
+endif()
 
 # Build the buildvm for host platform
 set(BUILDVM_COMPILER_FLAGS "${TARGET_ARCH}")
@@ -413,24 +447,28 @@ if(NOT CMAKE_CROSSCOMPILING)
   set(BUILDVM_PATH $<TARGET_FILE:buildvm>)
   add_dependencies(buildvm buildvm_arch_h)
 else()
-  set(BUILDVM_PATH ${CMAKE_CURRENT_BINARY_DIR}/buildvm/${BUILDVM_EXE})
+  if(${CMAKE_HOST_SYSTEM_NAME} STREQUAL Windows)
+    set(BUILDVM_PATH ${CMAKE_CURRENT_BINARY_DIR}/buildvm/Debug/${BUILDVM_EXE})
+  else()
+    set(BUILDVM_PATH ${CMAKE_CURRENT_BINARY_DIR}/buildvm/${BUILDVM_EXE})
+  endif()
 
   make_directory(${CMAKE_CURRENT_BINARY_DIR}/buildvm)
 
-  add_custom_command(OUTPUT ${BUILDVM_PATH}
+  add_custom_target(buildvm
     COMMAND ${CMAKE_COMMAND} ${TOOLCHAIN} ${TARGET_SYS}
             ${CMAKE_CURRENT_LIST_DIR}/host/buildvm
             -DCMAKE_SIZEOF_VOID_P=${CMAKE_SIZEOF_VOID_P}
             -DLUAJIT_DIR=${LUAJIT_DIR}
             -DEXTRA_COMPILER_FLAGS_FILE=${BUILDVM_COMPILER_FLAGS_PATH}
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/buildvm
+    BYPRODUCTS ${BUILDVM_PATH}
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/host/buildvm/CMakeLists.txt
     DEPENDS buildvm_arch_h
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/buildvm)
-
-  add_custom_target(buildvm ALL
-    DEPENDS ${BUILDVM_PATH}
-  )
+  if(IOS)
+    set_target_properties(buildvm PROPERTIES XCODE_ATTRIBUTE_SDKROOT "macosx")
+  endif()
 endif()
 
 set(LJVM_MODE elfasm)
@@ -473,9 +511,7 @@ set(LJ_LIB_SOURCES
   ${LJ_DIR}/lib_string.c ${LJ_DIR}/lib_table.c ${LJ_DIR}/lib_io.c
   ${LJ_DIR}/lib_os.c ${LJ_DIR}/lib_package.c ${LJ_DIR}/lib_debug.c
   ${LJ_DIR}/lib_jit.c ${LJ_DIR}/lib_ffi.c ${LJ_DIR}/lib_buffer.c)
-add_custom_command(
-  OUTPUT ${LJ_LIBDEF_PATH} ${LJ_VMDEF_PATH} ${LJ_RECDEF_PATH} ${LJ_FFDEF_PATH}
-  OUTPUT ${LJ_BCDEF_PATH}
+add_custom_target(lj_gen_headers
   COMMAND ${HOST_WINE}
     ${BUILDVM_PATH} -m libdef -o ${LJ_LIBDEF_PATH} ${LJ_LIB_SOURCES}
   COMMAND ${HOST_WINE}
@@ -486,27 +522,25 @@ add_custom_command(
     ${BUILDVM_PATH} -m bcdef -o ${LJ_BCDEF_PATH} ${LJ_LIB_SOURCES}
   COMMAND ${HOST_WINE}
     ${BUILDVM_PATH} -m vmdef -o ${LJ_VMDEF_PATH} ${LJ_LIB_SOURCES}
-  DEPENDS buildvm ${LJ_LIB_SOURCE}
+  BYPRODUCTS ${LJ_LIBDEF_PATH} ${LJ_RECDEF_PATH} ${LJ_FFDEF_PATH} ${LJ_BCDEF_PATH} ${LJ_VMDEF_PATH}
+  DEPENDS buildvm
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/)
-
-add_custom_target(lj_gen_headers ALL
-  DEPENDS ${LJ_LIBDEF_PATH} ${LJ_RECDEF_PATH} ${LJ_VMDEF_PATH}
-  DEPENDS ${LJ_FFDEF_PATH} ${LJ_BCDEF_PATH}
-)
+if(IOS)
+  set_target_properties(lj_gen_headers PROPERTIES XCODE_ATTRIBUTE_SDKROOT "macosx")
+endif()
 
 set(LJ_FOLDDEF_PATH ${CMAKE_CURRENT_BINARY_DIR}/lj_folddef.h)
 
 set(LJ_FOLDDEF_SOURCE ${LJ_DIR}/lj_opt_fold.c)
-add_custom_command(
-  OUTPUT ${LJ_FOLDDEF_PATH}
+add_custom_target(lj_gen_folddef
   COMMAND ${HOST_WINE}
     ${BUILDVM_PATH} -m folddef -o ${LJ_FOLDDEF_PATH} ${LJ_FOLDDEF_SOURCE}
-  DEPENDS ${BUILDVM_PATH}
+  BYPRODUCTS ${LJ_FOLDDEF_PATH} ${LJ_FOLDDEF_SOURCE}
+  DEPENDS buildvm
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/)
-
-add_custom_target(lj_gen_folddef ALL
-  DEPENDS ${LJ_FOLDDEF_PATH}
-)
+if(IOS)
+  set_target_properties(lj_gen_folddef PROPERTIES XCODE_ATTRIBUTE_SDKROOT "macosx")
+endif()
 
 file(GLOB_RECURSE SRC_LJCORE    "${LJ_DIR}/lj_*.c")
 file(GLOB_RECURSE SRC_LIBCORE   "${LJ_DIR}/lib_*.c")
@@ -566,6 +600,28 @@ endif()
 
 target_compile_options(libluajit PRIVATE ${LJ_COMPILE_OPTIONS})
 
+<<<<<<< HEAD
+=======
+# Build the luajit binary
+add_executable(luajit ${LJ_DIR}/luajit.c)
+target_link_libraries(luajit libluajit)
+if(APPLE AND NOT IOS AND NOT ("${LJ_TARGET_ARCH}" STREQUAL "arm64"))
+  set_target_properties(minilua PROPERTIES
+    LINK_FLAGS "-pagezero_size 10000 -image_base 100000000")
+endif()
+if(APPLE AND ${CMAKE_C_COMPILER_ID} STREQUAL "zig")
+  target_link_libraries(luajit c pthread)
+  set_target_properties(minilua PROPERTIES
+    LINK_FLAGS "-mmacosx-version-min=10.11")
+endif()
+if(NOT WIN32 AND NOT LUAJIT_NO_UNWIND AND ${CMAKE_C_COMPILER_ID} STREQUAL zig)
+  target_link_libraries(luajit unwind)
+endif()
+
+target_compile_definitions(luajit PRIVATE ${LJ_DEFINITIONS})
+file(COPY ${LJ_DIR}/jit DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+>>>>>>> origin/master
 set(luajit_headers
   ${LJ_DIR}/lauxlib.h
   ${LJ_DIR}/lua.h
@@ -583,8 +639,10 @@ if (LUAJIT_BUILD_EXE)
   target_link_libraries(luajit libluajit)
   if(APPLE AND ${CMAKE_C_COMPILER_ID} STREQUAL "zig")
     target_link_libraries(luajit c pthread)
-    set_target_properties(minilua PROPERTIES
-      LINK_FLAGS "-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    if(APPLE AND NOT IOS AND NOT ("${LJ_TARGET_ARCH}" STREQUAL "arm64"))
+      set_target_properties(minilua PROPERTIES
+        LINK_FLAGS "-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    endif()
   endif()
   if(HAVE_UNWIND_LIB AND (NOT LUAJIT_NO_UNWIND STREQUAL ON))
     target_link_libraries(luajit ${UNWIND_LIBRARY})

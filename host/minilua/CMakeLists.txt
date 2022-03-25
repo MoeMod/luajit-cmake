@@ -13,3 +13,6 @@ if(TARGET_ARCH)
   set_target_properties(minilua PROPERTIES
     COMPILE_FLAGS "${STARGET_ARCH}")
 endif()
+if(APPLE)
+  set_target_properties(minilua PROPERTIES XCODE_ATTRIBUTE_SDKROOT "macosx")
+endif()
