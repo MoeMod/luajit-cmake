@@ -196,20 +196,6 @@ if(CMAKE_C_COMPILER_ID STREQUAL zig)
     if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL x86_64)
       set(LUAJIT_NO_UNWIND ON)
     endif()
-endif()
-
-if(CMAKE_C_COMPILER_ID STREQUAL zig)
-  message(STATUS "#### CMAKE_SYSTEM_NAME is ${CMAKE_SYSTEM_NAME}")
-  message(STATUS "#### CMAKE_SYSTEM_PROCESSOR is ${CMAKE_SYSTEM_PROCESSOR}")
-  message(STATUS "#### ARCH is ${ARCH}")
-  set(LUAJIT_BUILD_ALAMG ON)
-  if(${CMAKE_SYSTEM_NAME} MATCHES Darwin)
-    set(LUAJIT_NO_UNWIND ON)
-  elseif(${CMAKE_SYSTEM_NAME} STREQUAL Linux)
-    if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL x86_64)
-      set(LUAJIT_NO_UNWIND ON)
->>>>>>> origin/master
-    endif()
   endif()
 endif()
 
@@ -600,28 +586,6 @@ endif()
 
 target_compile_options(libluajit PRIVATE ${LJ_COMPILE_OPTIONS})
 
-<<<<<<< HEAD
-=======
-# Build the luajit binary
-add_executable(luajit ${LJ_DIR}/luajit.c)
-target_link_libraries(luajit libluajit)
-if(APPLE AND NOT IOS AND NOT ("${LJ_TARGET_ARCH}" STREQUAL "arm64"))
-  set_target_properties(minilua PROPERTIES
-    LINK_FLAGS "-pagezero_size 10000 -image_base 100000000")
-endif()
-if(APPLE AND ${CMAKE_C_COMPILER_ID} STREQUAL "zig")
-  target_link_libraries(luajit c pthread)
-  set_target_properties(minilua PROPERTIES
-    LINK_FLAGS "-mmacosx-version-min=10.11")
-endif()
-if(NOT WIN32 AND NOT LUAJIT_NO_UNWIND AND ${CMAKE_C_COMPILER_ID} STREQUAL zig)
-  target_link_libraries(luajit unwind)
-endif()
-
-target_compile_definitions(luajit PRIVATE ${LJ_DEFINITIONS})
-file(COPY ${LJ_DIR}/jit DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-
->>>>>>> origin/master
 set(luajit_headers
   ${LJ_DIR}/lauxlib.h
   ${LJ_DIR}/lua.h
